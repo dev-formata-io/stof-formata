@@ -1,0 +1,108 @@
+//
+// Copyright 2024 Formata, Inc. All rights reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//    http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+
+/**
+ * Formata root scope.
+ * Everything for Formata will exist in this scope.
+ */
+root Formata: {
+    /**
+     * Formata Run Decorator.
+     * This will run all Tasks on the current object.
+     * ```
+     * #[decorator(Formata.run)]
+     * fn run() {
+     *     // All Tasks have been run in this object now
+     * }
+     * ```
+     */
+    fn run(func: fn): fn {
+        return (reply: obj) => {
+            // Get the tasks to execute (in order)
+            let tasks = [];
+            for (field in self.fields()) {
+                let value = field[1];
+                if ((typeof value) == 'obj' && value.instanceOf('Task')) {
+                    tasks.push(value);
+                }
+            }
+            tasks.sort((a: obj, b: obj): int => {
+                if (a.order == null || b.order == null) return 0;
+                if (a.order < b.order) return -1;
+                if (a.order > b.order) return 1;
+                return 0;
+            });
+
+            // Execute all #[run] functions in each task
+            for (task in tasks) {
+                let explicit_run = true;
+                let functions = [];
+                for (pair in task.functions()) {
+                    let name = pair[0];
+                    let fun = pair[1];
+                    for (attribute_pair in fun.attributes()) {
+                        if (attribute_pair[0] == 'run') {
+                            // If the function is named 'run', don't call the tasks 'run'
+                            if (name == 'run') explicit_run = false;
+
+                            let order = 0;
+                            if ((typeof attribute_pair[1]) == 'int') order = attribute_pair[1];
+                            functions.push((fun, order));
+                            break;
+                        }
+                    }
+                }
+                functions.sort((a: (fn, int), b: (fn, int)): int => {
+                    let ao = a[1];
+                    let bo = b[1];
+                    if (ao < bo) return -1;
+                    if (ao > bo) return 1;
+                    return 0;
+                });
+                for (pair in functions) {
+                    let fun = pair[0];
+                    fun.call(reply);
+                }
+                if (explicit_run) {
+                    task.run(reply);
+                }
+            }
+
+            // Call the decorated function last
+            func.call(reply);
+        };
+    }
+
+    /**
+     * Formata Task.
+     * This is the base type for tasks in Formata.
+     */
+    type Task {
+        /// Optional ordering for this task.
+        /// Setting this will order tasks declared within the same object.
+        order: int = 0;
+
+        /**
+        * Run function.
+        * Because this is decorated, calling this function will execute all 'Formata.Task' objects in this task object.
+        * If overriding 'run' in your task, call 'self.Task::run(reply)' to execute this function (and all tasks on this object).
+        */
+        #[decorator(self.run)]
+        fn run(reply: obj) {
+            /* override this function to do work */
+        }
+    }
+}

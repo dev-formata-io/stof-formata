@@ -1,0 +1,163 @@
+//
+// Copyright 2024 Formata, Inc. All rights reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//    http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+
+import github:formata "task.stof";
+
+
+/**
+ * Formata root scope.
+ * Everything for Formata will exist in this scope.
+ */
+root Formata: {
+    /**
+     * Formata HTTP interface.
+     * Requires your Stof document to have the 'HTTP' library loaded.
+     */
+    Http: {
+        type Request {
+            url: str;
+            method: str = 'get';
+            headers: vec = [];
+            timeout: float = 5s;
+            body: blob = null;
+            response: obj = null;
+
+            /**
+            * Add a response object to this request.
+            * This is optional, but if a 'response' object exists, 'send' will populate it with the response data,
+            * using the HTTP response's content type as the format.
+            *
+            * @param resp - Optional response object to use (will create one if needed).
+            */
+            fn addResponse(resp: obj = null) {
+                if (self.response) drop self.response; // Delete the response from the document if necessary
+                if (resp) {
+                    self.response = resp;
+                } else {
+                    self.response = new {};
+                }
+            }
+
+            /// Add a header to this request.
+            fn header(key: str, value: str) {
+                let headers = self.headers;
+                headers.retain((val: (str, str)): bool => val[0] != key);
+                headers.push((key, value));
+                self.headers = headers;
+            }
+
+            /// Set the body of this request.
+            fn body(body: blob) {
+                self.body = body;
+            }
+
+            /// Add a Stof object as the request body.
+            /// Ex. obj(obj, 'json')
+            fn obj(object: obj, format: str) {
+                let contentType = formatContentType(format);
+                self.header('content-type', contentType);
+                self.body = blobify(object, format);
+            }
+
+            /// Add a string as the request body.
+            fn str(body: str, format: str = 'text') {
+                let contentType = formatContentType(format);
+                self.header('content-type', contentType);
+                self.body = blobify(body, format); // will encode str as utf-8, just like a normal cast
+            }
+
+            /// Send this request as a GET request.
+            fn get(): (str, vec, blob) {
+                self.method = 'get';
+                return self.send();
+            }
+
+            /// Send this request as a PATCH request.
+            fn patch(): (str, vec, blob) {
+                self.method = 'patch';
+                return self.send();
+            }
+
+            /// Send this request as a HEAD request.
+            fn head(): (str, vec, blob) {
+                self.method = 'head';
+                return self.send();
+            }
+
+            /// Send this request as a POST request.
+            fn post(): (str, vec, blob) {
+                self.method = 'post';
+                return self.send();
+            }
+
+            /// Send this request as a PUT request.
+            fn put(): (str, vec, blob) {
+                self.method = 'put';
+                return self.send();
+            }
+
+            /// Send this request as a DELETE request.
+            fn delete(): (str, vec, blob) {
+                self.method = 'delete';
+                return self.send();
+            }
+
+            /// Send this request.
+            fn send(): (str, vec, blob) {
+                let method = self.method.toLower();
+                if (method == 'get') {
+                    if (self.body && self.response) return HTTP.get(self.url, self.headers, self.body, self.timeout, self.response);
+                    else if (self.body) return HTTP.get(self.url, self.headers, self.body, self.timeout);
+                    else if (self.response) return HTTP.get(self.url, self.headers, self.timeout, self.response);
+                    return HTTP.get(self.url, self.headers, self.timeout);
+                } else if (method == 'patch') {
+                    if (self.body && self.response) return HTTP.patch(self.url, self.headers, self.body, self.timeout, self.response);
+                    else if (self.body) return HTTP.patch(self.url, self.headers, self.body, self.timeout);
+                    else if (self.response) return HTTP.patch(self.url, self.headers, self.timeout, self.response);
+                    return HTTP.patch(self.url, self.headers, self.timeout);
+                } else if (method == 'head') {
+                    if (self.body && self.response) return HTTP.head(self.url, self.headers, self.body, self.timeout, self.response);
+                    else if (self.body) return HTTP.head(self.url, self.headers, self.body, self.timeout);
+                    else if (self.response) return HTTP.head(self.url, self.headers, self.timeout, self.response);
+                    return HTTP.head(self.url, self.headers, self.timeout);
+                } else if (method == 'post') {
+                    if (self.body && self.response) return HTTP.post(self.url, self.headers, self.body, self.timeout, self.response);
+                    else if (self.body) return HTTP.post(self.url, self.headers, self.body, self.timeout);
+                    else if (self.response) return HTTP.post(self.url, self.headers, self.timeout, self.response);
+                    return HTTP.post(self.url, self.headers, self.timeout);
+                } else if (method == 'put') {
+                    if (self.body && self.response) return HTTP.put(self.url, self.headers, self.body, self.timeout, self.response);
+                    else if (self.body) return HTTP.put(self.url, self.headers, self.body, self.timeout);
+                    else if (self.response) return HTTP.put(self.url, self.headers, self.timeout, self.response);
+                    return HTTP.put(self.url, self.headers, self.timeout);
+                } else if (method == 'delete') {
+                    if (self.body && self.response) return HTTP.delete(self.url, self.headers, self.body, self.timeout, self.response);
+                    else if (self.body) return HTTP.delete(self.url, self.headers, self.body, self.timeout);
+                    else if (self.response) return HTTP.delete(self.url, self.headers, self.timeout, self.response);
+                    return HTTP.delete(self.url, self.headers, self.timeout);
+                }
+                throw('attempting to use an unsupported method while sending an HTTP request');
+            }
+        }
+
+        /**
+         * Task to execute a GET request.
+         */
+        type GET extends Formata.Task {
+            
+        }
+    }
+}
