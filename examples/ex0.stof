@@ -1,0 +1,86 @@
+//
+// Copyright 2024 Formata, Inc. All rights reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//    http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+
+import github:formata 'mod';
+
+
+// Schemafy is a Task that applies a Schema to a 'reply' object in the 'run' function.
+Schemafy main: {
+    // Makes an HTTP call to the restcountries API and puts the reply in the 'reply' object
+    // passed to this tasks 'run' function.
+    Http.Call usa: {
+        request: {
+            url: 'https://restcountries.com/v3.1/name/usa'
+        }
+    }
+
+    // After executing all tasks, this Schemafy task will use this object as the schema
+    // for the 'reply' object passed to this tasks 'run' function.
+    Schema schema: {
+        #[ignore]
+        Schema country: {
+            // Keep alternate spellings that are greater than 2 letters only
+            #[expand]
+            #[exclude((val: str): bool => val.len() > 2)]
+            altSpellings: []
+
+            // Area of the country must be positive
+            #[validate((area: float): bool => area >= 0)]
+            area: 0
+
+            // Exclude the nativeName portion of the name object, keeping everything else
+            Schema name: {
+                #[exclude] nativeName: {}
+            }
+
+            // Exclude all of these fields
+            #[exclude] cca2: ''
+            #[exclude] cca3: ''
+            #[exclude] ccn3: ''
+            #[exclude] cioc: ''
+            #[exclude] flag: ''
+            #[exclude] subregion: ''
+            #[exclude] status: ''
+            #[exclude] startOfWeek: ''
+            #[exclude] region: ''
+            #[exclude] landlocked: false
+            #[exclude] timezones: []
+            #[exclude] tld: []
+            #[exclude] unMember: true
+            #[exclude] coatOfArms: {}
+            #[exclude] demonyms: {}
+            #[exclude] car: {}
+            #[exclude] currencies: {}
+            #[exclude] flags: {}
+            #[exclude] gini: {}
+            #[exclude] idd: {}
+            #[exclude] postalCode: {}
+            #[exclude] translations: {}
+        }
+
+        // Apply the country schema to every object in this array
+        #[expand(self.country)]
+        field: [];
+    }
+}
+
+
+#[main]
+fn main() {
+    let reply = new {};
+    self.main.run(reply);
+    pln(stringify(reply, 'toml'));
+}
