@@ -1,38 +1,36 @@
 //
 // Copyright 2024 Formata, Inc. All rights reserved.
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//    http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-//
-
-import github:formata "task.stof";
 
 
-/**
- * Formata root scope.
- * Everything for Formata will exist in this scope.
- */
 root Formata: {
     /**
      * Formata HTTP interface.
      * Requires your Stof document to have the 'HTTP' library loaded.
      */
     Http: {
-        type Request {
+        /**
+         * Formata's HTTP Request type.
+         */
+        type Request extends Schema {
+            /// Request URL.
             url: str;
+
+            /// Request method (not case-sensitive): one of {'get', 'put', 'delete', 'patch', 'post', 'head'}
             method: str = 'get';
+
+            /// Request headers in the form [(key: str, value: str), ...]
             headers: vec = [];
+
+            /// Request timeout.
             timeout: float = 5s;
+
+            /// Optional request body.
+            #[optional]
             body: blob = null;
+
+            /// Optional request response object. If present, response will be parsed into this object.
+            #[optional]
             response: obj = null;
 
             /**
@@ -116,48 +114,77 @@ root Formata: {
             }
 
             /// Send this request.
+            /// Returns (response_content_type: str, response_headers: vec, response_body: blob)
             fn send(): (str, vec, blob) {
-                let method = self.method.toLower();
-                if (method == 'get') {
-                    if (self.body && self.response) return HTTP.get(self.url, self.headers, self.body, self.timeout, self.response);
-                    else if (self.body) return HTTP.get(self.url, self.headers, self.body, self.timeout);
-                    else if (self.response) return HTTP.get(self.url, self.headers, self.timeout, self.response);
-                    return HTTP.get(self.url, self.headers, self.timeout);
-                } else if (method == 'patch') {
-                    if (self.body && self.response) return HTTP.patch(self.url, self.headers, self.body, self.timeout, self.response);
-                    else if (self.body) return HTTP.patch(self.url, self.headers, self.body, self.timeout);
-                    else if (self.response) return HTTP.patch(self.url, self.headers, self.timeout, self.response);
-                    return HTTP.patch(self.url, self.headers, self.timeout);
-                } else if (method == 'head') {
-                    if (self.body && self.response) return HTTP.head(self.url, self.headers, self.body, self.timeout, self.response);
-                    else if (self.body) return HTTP.head(self.url, self.headers, self.body, self.timeout);
-                    else if (self.response) return HTTP.head(self.url, self.headers, self.timeout, self.response);
-                    return HTTP.head(self.url, self.headers, self.timeout);
-                } else if (method == 'post') {
-                    if (self.body && self.response) return HTTP.post(self.url, self.headers, self.body, self.timeout, self.response);
-                    else if (self.body) return HTTP.post(self.url, self.headers, self.body, self.timeout);
-                    else if (self.response) return HTTP.post(self.url, self.headers, self.timeout, self.response);
-                    return HTTP.post(self.url, self.headers, self.timeout);
-                } else if (method == 'put') {
-                    if (self.body && self.response) return HTTP.put(self.url, self.headers, self.body, self.timeout, self.response);
-                    else if (self.body) return HTTP.put(self.url, self.headers, self.body, self.timeout);
-                    else if (self.response) return HTTP.put(self.url, self.headers, self.timeout, self.response);
-                    return HTTP.put(self.url, self.headers, self.timeout);
-                } else if (method == 'delete') {
-                    if (self.body && self.response) return HTTP.delete(self.url, self.headers, self.body, self.timeout, self.response);
-                    else if (self.body) return HTTP.delete(self.url, self.headers, self.body, self.timeout);
-                    else if (self.response) return HTTP.delete(self.url, self.headers, self.timeout, self.response);
-                    return HTTP.delete(self.url, self.headers, self.timeout);
+                switch (self.method.toLower()) {
+                    case 'get': {
+                        if (self.body && self.response) return HTTP.get(self.url, self.headers, self.body, self.timeout, self.response);
+                        else if (self.body) return HTTP.get(self.url, self.headers, self.body, self.timeout);
+                        else if (self.response) return HTTP.get(self.url, self.headers, self.timeout, self.response);
+                        return HTTP.get(self.url, self.headers, self.timeout);
+                    }
+                    case 'patch': {
+                        if (self.body && self.response) return HTTP.patch(self.url, self.headers, self.body, self.timeout, self.response);
+                        else if (self.body) return HTTP.patch(self.url, self.headers, self.body, self.timeout);
+                        else if (self.response) return HTTP.patch(self.url, self.headers, self.timeout, self.response);
+                        return HTTP.patch(self.url, self.headers, self.timeout);
+                    }
+                    case 'head': {
+                        if (self.body && self.response) return HTTP.head(self.url, self.headers, self.body, self.timeout, self.response);
+                        else if (self.body) return HTTP.head(self.url, self.headers, self.body, self.timeout);
+                        else if (self.response) return HTTP.head(self.url, self.headers, self.timeout, self.response);
+                        return HTTP.head(self.url, self.headers, self.timeout);
+                    }
+                    case 'post': {
+                        if (self.body && self.response) return HTTP.post(self.url, self.headers, self.body, self.timeout, self.response);
+                        else if (self.body) return HTTP.post(self.url, self.headers, self.body, self.timeout);
+                        else if (self.response) return HTTP.post(self.url, self.headers, self.timeout, self.response);
+                        return HTTP.post(self.url, self.headers, self.timeout);
+                    }
+                    case 'put': {
+                        if (self.body && self.response) return HTTP.put(self.url, self.headers, self.body, self.timeout, self.response);
+                        else if (self.body) return HTTP.put(self.url, self.headers, self.body, self.timeout);
+                        else if (self.response) return HTTP.put(self.url, self.headers, self.timeout, self.response);
+                        return HTTP.put(self.url, self.headers, self.timeout);
+                    }
+                    case 'delete': {
+                        if (self.body && self.response) return HTTP.delete(self.url, self.headers, self.body, self.timeout, self.response);
+                        else if (self.body) return HTTP.delete(self.url, self.headers, self.body, self.timeout);
+                        else if (self.response) return HTTP.delete(self.url, self.headers, self.timeout, self.response);
+                        return HTTP.delete(self.url, self.headers, self.timeout);
+                    }
+                    default: {
+                        throw('attempting to use an unsupported method while sending an HTTP request');
+                    }
                 }
-                throw('attempting to use an unsupported method while sending an HTTP request');
             }
         }
 
         /**
-         * Task to execute a GET request.
+         * Formata's HTTP Call Request task.
          */
-        type GET extends Formata.Task {
-            
+        type Call extends Task {
+            request: Formata.Http.Request;
+            #[optional]
+            raw_response: unknown = null;
+
+            /// Runs all sub-tasks, then makes the HTTP request.
+            fn run(reply: obj) {
+                self.Task::run(reply);
+                if (!self.request.response) {
+                    self.request.response = reply;
+                }
+                self.raw_response = self.request.send();
+            }
+
+            /// Get the response of this HTTP call.
+            /// Returns response object if request had one (obj)
+            /// or (str, vec, blob) raw response otherwise
+            /// or null if this HTTP call has not been made yet.
+            fn response(): unknown {
+                if (self.request.response) return self.request.response;
+                return self.raw_response;
+            }
         }
     }
 }

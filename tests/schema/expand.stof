@@ -1,0 +1,140 @@
+//
+// Copyright 2024 Formata, Inc. All rights reserved.
+//
+
+Schema schema: {
+    // Validate will occur on the entire array
+    #[validate((value: vec): bool => value.len() > 3)]
+    entire_array: [1, 2, 3, 4]
+
+    // This will use this schema to validate all sub-objects
+    #[expand]
+    sub_objects: []
+
+    #[ignore]
+    Schema message_schema: {
+        message: 'hello'
+        
+        #[validate((count: int): bool => count >= 0)]
+        count: 2
+    }
+
+    // This will use a provided schema to validate all array objects
+    #[expand(self.message_schema)]
+    messages: []
+}
+
+#[test]
+fn expands_success() {
+    let target = new {
+        entire_array: [1, 2, 3, 4]
+        messages: [
+            new {
+                count: 1
+            },
+            new {
+                message: 'dude'
+                count: 20
+            }
+        ]
+        sub_objects: [
+            new {
+                entire_array: [1, 2, 3, 4]
+                messages: [ new { count: 2 }]
+            }
+        ]
+    };
+    assert(self.schema.apply(target));
+}
+
+#[test]
+fn array_invalid() {
+    let target = new {
+        entire_array: [1, 2]
+        messages: [
+            new {
+                count: 1
+            },
+            new {
+                message: 'dude'
+                count: 20
+            }
+        ]
+        sub_objects: [
+            new {
+                entire_array: [1, 2, 3, 4]
+                messages: [ new { count: 2 }]
+            }
+        ]
+    };
+    assertNot(self.schema.apply(target));
+}
+
+#[test]
+fn message_count_invalid() {
+    let target = new {
+        entire_array: [1, 2, 3, 4]
+        messages: [
+            new {
+                count: -1
+            },
+            new {
+                message: 'dude'
+                count: 20
+            }
+        ]
+        sub_objects: [
+            new {
+                entire_array: [1, 2, 3, 4]
+                messages: [ new { count: 2 }]
+            }
+        ]
+    };
+    assertNot(self.schema.apply(target));
+}
+
+#[test]
+fn sub_object_array_invalid() {
+    let target = new {
+        entire_array: [1, 2, 3, 4]
+        messages: [
+            new {
+                count: 1
+            },
+            new {
+                message: 'dude'
+                count: 20
+            }
+        ]
+        sub_objects: [
+            new {
+                entire_array: [1, 2]
+                messages: [ new { count: 2 }]
+            }
+        ]
+    };
+    assertNot(self.schema.apply(target));
+}
+
+#[test]
+fn sub_object_message_count_invalid() {
+    let target = new {
+        entire_array: [1, 2, 3, 4]
+        messages: [
+            new {
+                count: 1
+            },
+            new {
+                message: 'dude'
+                count: 20
+            }
+        ]
+        sub_objects: [
+            new {
+                entire_array: [1, 2, 3, 4]
+                messages: [ new { count: -2 }]
+            }
+        ]
+    };
+    assertNot(self.schema.apply(target));
+}

@@ -1,23 +1,8 @@
 //
 // Copyright 2024 Formata, Inc. All rights reserved.
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//    http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-//
 
-/**
- * Formata root scope.
- * Everything for Formata will exist in this scope.
- */
+
 root Formata: {
     /**
      * Formata Run Decorator.
@@ -87,22 +72,60 @@ root Formata: {
     }
 
     /**
-     * Formata Task.
+     * Formata Task (also a schema).
      * This is the base type for tasks in Formata.
      */
-    type Task {
-        /// Optional ordering for this task.
+    type Task extends Schema {
+        /// Ordering for this task.
         /// Setting this will order tasks declared within the same object.
+        #[ignore] // for when this task is used as a Schema too
         order: int = 0;
 
         /**
-        * Run function.
-        * Because this is decorated, calling this function will execute all 'Formata.Task' objects in this task object.
-        * If overriding 'run' in your task, call 'self.Task::run(reply)' to execute this function (and all tasks on this object).
-        */
+         * Run function.
+         * Because this is decorated, calling this function will execute all 'Formata.Task' objects in this task object.
+         * If overriding 'run' in your task, call 'self.Task::run(reply)' to execute this function (and all tasks on this object).
+         */
         #[decorator(self.run)]
         fn run(reply: obj) {
             /* override this function to do work */
+        }
+    }
+
+    /**
+     * Apply a schema in a task.
+     */
+    type Schemafy extends Task {
+        /// Schema to use (default is this Task as the Schema).
+        #[ignore]
+        schema: Formata.Schema = null;
+
+        /// Object to apply the schema to.
+        #[ignore]
+        target: obj = null;
+
+        /// Getter for the target to apply the schema to.
+        /// Idea here is that a user can override a target declaratively, or here functionally.
+        fn getTarget(reply: obj): obj {
+            let defined_target = self.target;
+            if (defined_target) return defined_target;
+            return reply;
+        }
+
+        /// Getter for the schema to use on the target.
+        /// Idea here is that a user can override the schema declaratively, or here functionally.
+        fn getSchema(): obj {
+            let defined_schema = self.schema;
+            if (defined_schema) return defined_schema;
+            return self;
+        }
+
+        /// Run this task.
+        fn run(reply: obj) {
+            self.Task::run(reply);
+            let schema = self.getSchema();
+            let target = self.getTarget(reply);
+            self.valid = schema.apply(target);
         }
     }
 }

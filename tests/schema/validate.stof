@@ -1,0 +1,140 @@
+//
+// Copyright 2024 Formata, Inc. All rights reserved.
+//
+
+
+Schema by_value_schema: {
+    // This field is only valid if it equals 'val'
+    #[validate('val')]
+    by_value: 'val'
+}
+#[test]
+fn by_value() {
+    let target = new {
+        by_value: 'val',
+    };
+    assert(self.by_value_schema.apply(target));
+
+    target.by_value = 'not_valid';
+    assertNot(self.by_value_schema.apply(target));
+    assertNull(target.by_value); // not valid, so field removed
+}
+
+
+Schema validate_func_schema: {
+    // This field will be validated by this function
+    // Will always be valid as long as you don't throw an error
+    #[validate((val: int): int => Number.abs(val))]
+    age: 30
+}
+#[test]
+fn validate_function() {
+    let target = new {};
+    assert(self.validate_func_schema.apply(target));
+    assertEq(target.age, 30);
+
+    target.age = -20;
+    assert(self.validate_func_schema.apply(target));
+    assertEq(target.age, 20);
+}
+
+
+Schema valid_func_schema: {
+    // This field is considered valid if the function returns true, removed and not valid otherwise
+    #[validate((val: int): bool => val >= 0)]
+    age: 30
+}
+#[test]
+fn valid_function() {
+    let target = new {
+        age: 20
+    };
+    assert(self.valid_func_schema.apply(target));
+    assertEq(target.age, 20);
+
+    target.age = -20;
+    assertNot(self.valid_func_schema.apply(target));
+    assertNull(target.age);
+}
+
+
+Schema valid_contains_schema: {
+    // This field is considered valid if value is contained in the array
+    #[validate([1, 2, 3, 4])]
+    array_val: 2
+
+    // This field is considered valid if value is contained in the set
+    #[validate(set(10, 20, 30, 40))]
+    set_val: 20
+}
+#[test]
+fn contains() {
+    let target = new { array_val: 4, set_val: 40 };
+    assert(self.valid_contains_schema.apply(target));
+    assertEq(target.array_val, 4);
+    assertEq(target.set_val, 40);
+
+    target.array_val = 5;
+    assertNot(self.valid_contains_schema.apply(target));
+    assertNull(target.array_val);
+    assertEq(target.set_val, 40);
+
+    target.array_val = 4;
+    target.set_val = 50;
+    assertNot(self.valid_contains_schema.apply(target));
+    assertNull(target.set_val);
+    assertEq(target.array_val, 4);
+
+    target.array_val = 5;
+    target.set_val = 50;
+    target.another = 'hi';
+    assertNot(self.valid_contains_schema.apply(target));
+    assertNull(target.array_val);
+    assertNull(target.set_val);
+    assertEq(target.another, 'hi');
+}
+
+
+Schema map_schema: {
+    // Maps a specific value to a valid function.
+    #[validate(map([
+        ('HI', (): bool => true),
+        ('BYE', (): bool => false),
+    ]))]
+    greet: 'HI'
+
+    // Maps a specific value to another specific value.
+    #[validate(map([
+        ('HI', (): str => 'hello, world'),
+        ('BYE', (): str => 'go, get, scram'),
+    ]))]
+    better_greet: 'hello, world'
+}
+#[test]
+fn map_validate() {
+    let target = new {
+        greet: 'HI',
+        better_greet: 'HI',
+    };
+    assert(self.map_schema.apply(target));
+    assertEq(target.greet, 'HI');
+    assertEq(target.better_greet, 'hello, world');
+
+    target.better_greet = 'BYE';
+    target.greet = 'BYE';
+    assertNot(self.map_schema.apply(target));
+    assertNull(target.greet);
+    assertEq(target.better_greet, 'go, get, scram');
+
+    target.greet = 'HI';
+    target.better_greet = 'dne';
+    assertNot(self.map_schema.apply(target));
+    assertNull(target.better_greet);
+    assertEq(target.greet, 'HI');
+
+    target.greet = 'dne';
+    target.better_greet = 'dne';
+    assertNot(self.map_schema.apply(target));
+    assertNull(target.greet);
+    assertNull(target.better_greet);
+}

@@ -1,0 +1,15 @@
+//
+// Copyright 2024 Formata, Inc. All rights reserved.
+//
+
+import 'mod';
+
+// Schema tests
+import './schema/ignore' as Schema.Ignore;
+import './schema/optional' as Schema.Optional;
+import './schema/validate' as Schema.Validate;
+import './schema/expand' as Schema.Expand;
+import './schema/search' as Schema.Search;
+
+// Task tests
+import './task/basic' as Task.Basic;

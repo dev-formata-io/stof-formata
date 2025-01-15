@@ -1,0 +1,48 @@
+//
+// Copyright 2024 Formata, Inc. All rights reserved.
+//
+
+import './task';
+
+
+TestTask main: {
+    TestTask first: {
+        order: 0
+
+        TestTask sub-first: {
+            TestTask sub-sub-a: {
+                order: 1
+            }
+            TestTask sub-sub-b: {
+                order: 0
+            }
+
+            fn run(reply: obj) {
+                reply.did_it = true;
+                self.push('before-sub-subs');
+
+                self.TestTask::run(reply);
+
+                self.push('after-sub-subs');
+            }
+        }
+    }
+    TestTask second: {
+        order: 1
+    }
+}
+
+
+#[decorator(Formata.run)]
+fn run(reply: obj) {
+    self.main.push('done');
+}
+
+
+#[test]
+fn basic_run_tasks() {
+    let reply = new {};
+    self.run(reply);
+    assert(reply.did_it);
+    assertEq(self.main.call_list, ['before-sub-subs', 'sub-sub-b', 'sub-sub-a', 'sub-first', 'after-sub-subs', 'first', 'second', 'main', 'done']);
+}

@@ -1,0 +1,28 @@
+//
+// Copyright 2024 Formata, Inc. All rights reserved.
+//
+
+
+Schema schema: {
+    // If this field doesn't exist on the target, that's okay and won't be validated, created, etc...
+    #[optional]
+    optional_field: 'hi there'
+
+    not_optional: 'not optional'
+}
+
+#[test]
+fn optional_field() {
+    let target = new {};
+    assert(self.schema.apply(target));
+    assertEq(target.not_optional, 'not optional');
+    assertNull(target.optional_field);
+
+    target = new {
+        optional_field: 'dude'
+        not_optional: 'hello'
+    };
+    assert(self.schema.apply(target));
+    assertEq(target.not_optional, 'hello');
+    assertEq(target.optional_field, 'dude');
+}

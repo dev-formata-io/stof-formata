@@ -1,0 +1,23 @@
+//
+// Copyright 2024 Formata, Inc. All rights reserved.
+//
+
+type TestTask extends Formata.Task {
+    call_list: vec = [];
+    
+    fn run(reply: obj) {
+        self.Task::run(reply);
+        self.push(self.name());
+    }
+
+    fn push(val: str) {
+        let call_list = self.call_list;
+        call_list.push(val);
+        self.call_list = call_list;
+
+        let parent = self.parent();
+        if (parent && parent.instanceOf('TestTask')) {
+            parent.push(val);
+        }
+    }
+}

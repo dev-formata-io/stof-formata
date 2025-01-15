@@ -1,0 +1,20 @@
+//
+// Copyright 2024 Formata, Inc. All rights reserved.
+//
+
+
+Schema schema: {
+    // This field will not be interpreted as a part of this schema
+    #[ignore]
+    ignored: 'not hello, world'
+
+    not_ignored: 'hello, world'
+}
+
+#[test]
+fn ignored_field() {
+    let target = new {};
+    assert(self.schema.apply(target));
+    assertEq(target.not_ignored, 'hello, world');
+    assertNull(target.ignored);
+}

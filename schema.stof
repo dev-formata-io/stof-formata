@@ -1,0 +1,485 @@
+//
+// Copyright 2024 Formata, Inc. All rights reserved.
+//
+
+
+root Formata: {
+    /**
+     * Formata Schema Type.
+     * Schemas outline the fields that should exist on an object, once applied.
+     */
+    type Schema {
+        /**
+         * Apply this Schema to an object.
+         * By default, this schema applies to itself...
+         */
+        fn apply(target: obj = self): bool {
+            let valid = true;
+            for (field_name in self.keys()) {
+                if (!self.apply_field(target, field_name)) valid = false;
+            }
+            return valid;
+        }
+
+        /**
+         * Apply a singular field's schema.
+         */
+        fn apply_field(target: obj, field_name: str, default: unknown = null): bool {
+            // Get the current value we are working with
+            // This is typically called when applying the entire schema, but can be called per field also!
+            //
+            // First, try getting the field value on the target object
+            // Else, get the default field value of this schema
+            // Else, use a provided default
+            let value = target.at(field_name).or(self.at(field_name), default);
+
+            // Get the attributes for this field to apply
+            // Always sorted by name (BTreeMap)
+            // DEFAULT ORDER: access, exclude, expand, ignore, optional, optionalSearch, schema, search, validate
+            let attributes = self.attributes(field_name).or([]);
+
+            // TODO: add an 'order' attribute to customize the order in which attributes are processed
+            
+            let at_name = null;
+            let at_val = null;
+            let remove_field = false;
+            let optional_search = false;
+            for (attribute in attributes) {
+                at_name = attribute[0];
+                at_val = attribute[1];
+                switch (at_name) {
+                    // Access for this field in the schema.
+                    // Signatures:
+                    // - #[access(true | false)]
+                    // - #[access((target: obj): bool => true)]
+                    case 'access': {
+                        switch (typeof at_val) {
+                            case 'fn': {
+                                try {
+                                    if (!at_val.call(target)) {
+                                        remove_field = true;
+                                        break;
+                                    }
+                                } catch {
+                                    remove_field = true;
+                                    break;
+                                }
+                            }
+                            default: {
+                                if (!at_val) {
+                                    remove_field = true;
+                                    break; // no more attribute processing
+                                }
+                            }
+                        }
+                    }
+
+                    // Ignore this field in the schema
+                    // Signature: #[ignore]
+                    case 'ignore': {
+                        return true;
+                    }
+
+                    // If this field doesn't yet exist on the target object, don't create it!
+                    // Signature: #[optional]
+                    case 'optional': {
+                        if (target.at(field_name) == null) {
+                            return true;
+                        }
+                    }
+
+                    // Optional search.
+                    // If this value doesn't exist on the target, search for it in other locations, but don't require it to be found for the
+                    // field to be valid.
+                    case 'optionalSearch': {
+                        optional_search = true;
+                    }
+
+                    // Search for this value on the target if needed (field doesn't exist at this location on the target)
+                    // Looks for a field with the same name, but in a different location.
+                    // Signatures:
+                    // - #[search]           // look for the closest field with this name on the target (or key 'all')
+                    // - #[search('up')]     // look for the closest field on a parent (or parents children) with this name
+                    // - #[search('uponly')] // look for the closest field on a parent (no parent children) with this name
+                    // - #[search('down')]   // look for the closest field on a child with this name (first one seen)
+                    // - #[search(vec())]    // try searching for these field names, in-order, anywhere in the target
+                    // - #[search(map())]    // try searching for these field names, (alphabetical order), with a strategy: {'all', 'up', 'uponly', 'down'}
+                    case 'search': {
+                        if (target.at(field_name) != null) continue; // field already exists, so ignore 'search'
+                        try {
+                            switch (typeof at_val) {
+                                case 'null' |
+                                case 'str': {
+                                    let res = null;
+                                    if (at_val == 'up') res = target.searchUp(field_name, true, [self]);
+                                    else if (at_val == 'uponly') res = target.searchUp(field_name, false, [self]);
+                                    else if (at_val == 'down') res = target.searchDown(field_name, 0, [self]);
+                                    else res = target.search(field_name, true, [self]);
+                                    if (res != null) {
+                                        value = res[0]; // second value is the distance, we just need the val
+                                    } else if (optional_search) {
+                                        return true; // didn't find a value, but that's okay, it is not required...
+                                    } else {
+                                        remove_field = true;
+                                        break; // no search value found, so not valid
+                                    }
+                                }
+                                case 'vec': {
+                                    let res = null;
+                                    for (other_name in at_val) {
+                                        res = target.search(other_name, true, [self]);
+                                        if (res != null) break;
+                                    }
+                                    if (res != null) {
+                                        value = res[0]; // second value is the distance, we just need the val
+                                    } else if (optional_search) {
+                                        return true; // didn't find a value, but that's okay, it is not required...
+                                    } else {
+                                        remove_field = true;
+                                        break; // no search value found, so not valid
+                                    }
+                                }
+                                case 'map': {
+                                    let other_name = null;
+                                    let strategy = null;
+                                    let res = null;
+                                    for (item in at_val) {
+                                        other_name = item[0];
+                                        strategy = item[1];
+                                        
+                                        if (strategy == 'up') res = target.searchUp(other_name, true, [self]);
+                                        else if (strategy == 'uponly') res = target.searchUp(other_name, false, [self]);
+                                        else if (strategy == 'down') res = target.searchDown(other_name, 0, [self]);
+                                        else res = target.search(other_name, true, [self]);
+
+                                        if (res != null) break;
+                                    }
+                                    if (res != null) {
+                                        value = res[0]; // second value is the distance, we just need the val
+                                    } else if (optional_search) {
+                                        return true; // didn't find a value, but that's okay, it is not required...
+                                    } else {
+                                        remove_field = true;
+                                        break; // no search value found, so not valid
+                                    }
+                                }
+                                default: {
+                                    remove_field = true;
+                                    break; // no more attributes needed
+                                }
+                            }
+                        } catch {
+                            remove_field = true;
+                            break; // no more attributes needed
+                        }
+                    }
+
+                    // Validate this field's value
+                    // Signatures:
+                    // - #[validate(value: unknown)]                      // valid if field value is equal to value
+                    // - #[validate((value: unknown): unknown => value)]  // sets a validated value
+                    // - #[validate((value: unknown): bool => true)]      // keeps or removes the value (return true if valid)
+                    // - #[validate([...])]                               // valid if array contains the value
+                    // - #[validate(set(...))]                            // valid if set contains the value
+                    // - #[validate(map([(unknown, (): bool => true)]))]  // map a value to a valid function
+                    // - #[validate(map([(unknown, (): unknown => '')]))] // map a value to a different value
+                    case 'validate': {
+                        switch (typeof at_val) {
+                            case 'fn': {
+                                // validating this value with a function
+                                // (value: unknown): unknown => value // sets the value
+                                // (value: unknown): bool => true     // keeps or removes the value
+                                if (at_val.returnType() == 'bool') {
+                                    if (!at_val.call(value)) {
+                                        remove_field = true;
+                                        break; // no more attribute processing
+                                    }
+                                } else {
+                                    value = at_val.call(value);
+                                }
+                            }
+                            case 'vec': {
+                                let items = set(at_val);
+                                if (!items.contains(value)) {
+                                    remove_field = true;
+                                    break; // no more attribute processing
+                                }
+                            }
+                            case 'set': {
+                                // validating this value with a set
+                                if (!at_val.contains(value)) {
+                                    remove_field = true;
+                                    break; // no more attribute processing
+                                }
+                            }
+                            case 'map': {
+                                // validating this value with a map
+                                let map_val = at_val.get(value);
+                                switch (typeof map_val) {
+                                    case 'fn': {
+                                        if (map_val.returnType() == 'bool') {
+                                            if (!map_val.call()) {
+                                                remove_field = true;
+                                                break; // no more attribute processing
+                                            }
+                                        } else {
+                                            value = map_val.call();
+                                        }
+                                    }
+                                    default: {
+                                        remove_field = true;
+                                        break; // no more attribute processing
+                                    }
+                                }
+                            }
+                            default: {
+                                // value must match the attribute value...
+                                if (value != at_val) {
+                                    remove_field = true;
+                                    break; // no more attribute processing
+                                }
+                            }
+                        }
+                    }
+
+                    // Requires this field to be validated by additional schemas to be valid
+                    // Signatures:
+                    // - #[schema(other: obj)]  // uses 'other' as an additional schema to validate this field with
+                    // - #[schemas(vec())]      // uses each object in the vec as another schema - all must be valid
+                    // - #[schemas(set())]      // uses each object in the set as another schema - one must be valid
+                    case 'schemas' |
+                    case 'schema': {
+                        // apply additional schemas to this field
+                        try {
+                            switch (typeof at_val) {
+                                case 'obj': { // One additional schema to apply
+                                    remove_field = !at_val.apply_field(target, field_name, default);
+                                    value = target.at(field_name).or(self.at(field_name), default); // update value after extra schema
+                                    if (remove_field) break;
+                                }
+                                case 'vec': { // AND - all schemas must be valid
+                                    let valid = true;
+                                    for (schema in at_val) {
+                                        if ((typeof schema) == 'obj') {
+                                            valid = schema.apply_field(target, field_name, default);
+                                            if (!valid) break;
+                                        }
+                                    }
+                                    value = target.at(field_name).or(self.at(field_name), default); // update value after extra schemas
+                                    if (!valid) {
+                                        remove_field = true;
+                                        break;
+                                    }
+                                }
+                                case 'set': { // OR - just one schema must be valid
+                                    let valid = at_val.empty();
+                                    for (schema in at_val) {
+                                        if ((typeof schema) == 'obj') {
+                                            valid = schema.apply_field(target, field_name, default);
+                                            if (valid) break;
+                                        }
+                                    }
+                                    value = target.at(field_name).or(self.at(field_name), default); // update value after extra schemas
+                                    if (!valid) {
+                                        remove_field = true;
+                                        break;
+                                    }
+                                }
+                                default: throw('unsupported schema type');
+                            }
+                        } catch {
+                            remove_field = true;
+                            break; // no more attributes needed
+                        }
+                    }
+
+                    // Expand a collection, validating each value in it (only arrays are supported currently)
+                    // Signatures:
+                    // - OBJECT VALUES
+                    //      - #[expand]               // uses this schema as the schema for each value
+                    //      - #[expand(schema: obj)]  // uses 'schema' object as the schema for each value
+                    //      - #[expand((item: unknown): obj => schema)]  // use a different schema per object
+                    // - ALL OTHER VALUES
+                    //      - uses attributes on this field to validate each item in the array
+                    //          - #[validate()] - all validate variations are supported
+                    case 'expand': {
+                        try {
+                            switch (typeof value) {
+                                case 'vec': {
+                                    value.iter((val: unknown): unknown => box(val)); // box em up
+
+                                    let to_remove = []; // indices to remove
+                                    for (value in value) {
+                                        if ((typeof value) == 'obj' || (typeof value) == 'Box<obj>') {
+                                            switch (typeof at_val) {
+                                                case 'fn': {
+                                                    // function that returns the schema for this value in the array
+                                                    let schema = at_val.call(value);
+                                                    if ((typeof schema) == 'obj') {
+                                                        let valid = schema.apply(value);
+                                                        if (!valid) remove_field = true;
+                                                    }
+                                                }
+                                                case 'obj': {
+                                                    let valid = at_val.apply(value);
+                                                    if (!valid) remove_field = true;
+                                                }
+                                                default: {
+                                                    let valid = self.apply(value);
+                                                    if (!valid) remove_field = true;
+                                                }
+                                            }
+                                        } else {
+                                            // Apply these same attributes (just a subset) to each value
+                                            for (attribute in attributes) {
+                                                at_name = attribute[0];
+                                                at_val = attribute[1];
+                                                switch (at_name) {
+                                                    case 'validate': {
+                                                        switch (typeof at_val) {
+                                                            case 'fn': {
+                                                                // validating this value with a function
+                                                                // (value: unknown): unknown => value // sets the value
+                                                                // (value: unknown): bool => true     // keeps or removes the value
+                                                                if (at_val.returnType() == 'bool') {
+                                                                    if (!at_val.call(value)) {
+                                                                        remove_field = true;
+                                                                        break; // no more attribute processing
+                                                                    }
+                                                                } else {
+                                                                    value = at_val.call(value);
+                                                                }
+                                                            }
+                                                            case 'vec': {
+                                                                let items = set(at_val);
+                                                                if (!items.contains(value)) {
+                                                                    remove_field = true;
+                                                                    break; // no more attribute processing
+                                                                }
+                                                            }
+                                                            case 'set': {
+                                                                // validating this value with a set
+                                                                if (!at_val.contains(value)) {
+                                                                    remove_field = true;
+                                                                    break; // no more attribute processing
+                                                                }
+                                                            }
+                                                            case 'map': {
+                                                                // validating this value with a map
+                                                                let map_val = at_val.get(value);
+                                                                switch (typeof map_val) {
+                                                                    case 'fn': {
+                                                                        if (map_val.returnType() == 'bool') {
+                                                                            if (!map_val.call()) {
+                                                                                remove_field = true;
+                                                                                break; // no more attribute processing
+                                                                            }
+                                                                        } else {
+                                                                            value = map_val.call();
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                            default: {
+                                                                // value must match the attribute value...
+                                                                if (value != at_val) {
+                                                                    remove_field = true;
+                                                                    break; // no more attribute processing
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                    case 'exclude': {
+                                                        switch (typeof at_val) {
+                                                            case 'fn': {
+                                                                try {
+                                                                    if (!at_val.call(value)) {
+                                                                        to_remove.push(index);
+                                                                        break;
+                                                                    }
+                                                                } catch {
+                                                                    to_remove.push(index);
+                                                                    break;
+                                                                }
+                                                            }
+                                                            default: {
+                                                                to_remove.push(index);
+                                                                break;
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // Remove each index in to_remove
+                                    to_remove.reverse();
+                                    for (i in to_remove) {
+                                        value.pop(i);
+                                    }
+
+                                    value.iter((val: unknown): unknown => unbox(val)); // unbox em after
+                                }
+                                default: {
+                                    remove_field = true; // cannot expand this field
+                                }
+                            }
+                        } catch {
+                            remove_field = true; // encountered an error while expanding the values...
+                        }
+                        break; // we've applied these attributes to each expanded item, no more to do
+                    }
+
+                    // Exclude this field if found. Removes the field, but retains validity.
+                    // Signatures:
+                    // - #[exclude]                                  // always exclude this field
+                    // - #[exclude((value: unknown): bool => true)]  // return true if the field should be excluded
+                    case 'exclude': {
+                        // This is needed because 'exclude' comes before 'expand'
+                        let next = index + 1;
+                        if (attributes.len() > next && attributes.at(next).at(0) == 'expand') continue;
+
+                        switch (typeof at_val) {
+                            case 'fn': {
+                                try {
+                                    if (!at_val.call(value)) {
+                                        target.removeField(field_name, true);
+                                        return true; // don't set the field again...
+                                    }
+                                } catch {
+                                    target.removeField(field_name, true);
+                                    return true; // don't set the field again...
+                                }
+                            }
+                            default: {
+                                target.removeField(field_name, true);
+                                return true; // don't set the field again...
+                            }
+                        }
+                    }
+                }
+            }
+            if (remove_field) {
+                target.removeField(field_name, true);
+            } else {
+                // If this value is a sub-schema, apply it also
+                if ((typeof value) == 'obj') {
+                    target.set(field_name, value);
+
+                    let self_value = self.at(field_name);
+                    if (self_value != null && (typeof self_value) == 'obj' && self_value.instanceOf('Schema')) {
+                        remove_field = !self_value.apply(value);
+                    }
+
+                    if (remove_field) { // sub-schema was invalid, so remove this object!
+                        target.removeField(field_name, true);
+                    }
+                } else {
+                    target.set(field_name, value);
+                }
+            }
+            return !remove_field; // valid if we didn't remove the field...
+        }
+    }
+}
