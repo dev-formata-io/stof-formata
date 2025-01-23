@@ -24,6 +24,7 @@ import './schema/optional' as Schema.Optional;
 import './schema/validate' as Schema.Validate;
 import './schema/expand' as Schema.Expand;
 import './schema/search' as Schema.Search;
+import './schema/full' as Schema.Full;
 
 // Task tests
 import './task/basic' as Task.Basic;

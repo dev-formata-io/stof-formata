@@ -20,6 +20,7 @@ Schema schema: {
     #[optional]
     optional_field: 'hi there'
 
+    #[default]
     not_optional: 'not optional'
 }
 

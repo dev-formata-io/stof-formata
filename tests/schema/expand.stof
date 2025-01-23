@@ -21,19 +21,25 @@ Schema schema: {
     entire_array: [1, 2, 3, 4]
 
     // This will use this schema to validate all sub-objects
+    #[schema(self)]
+    #[default]
     #[expand]
     sub_objects: []
 
     #[ignore]
     Schema message_schema: {
+        #[default]
+        //#[required]
         message: 'hello'
         
         #[validate((count: int): bool => count >= 0)]
+        #[default]
         count: 2
     }
 
     // This will use a provided schema to validate all array objects
-    #[expand(self.message_schema)]
+    #[schema(self.message_schema)]
+    #[expand]
     messages: []
 }
 
@@ -57,7 +63,8 @@ fn expands_success() {
             }
         ]
     };
-    assert(self.schema.apply(target));
+    let valid = self.schema.apply(target);
+    assert(valid);
 }
 
 #[test]

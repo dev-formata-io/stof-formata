@@ -37,6 +37,7 @@ Schema validate_func_schema: {
     // This field will be validated by this function
     // Will always be valid as long as you don't throw an error
     #[validate((val: int): int => Number.abs(val))]
+    #[default]
     age: 30
 }
 #[test]

@@ -20,6 +20,7 @@ Schema schema: {
     #[ignore]
     ignored: 'not hello, world'
 
+    #[default]
     not_ignored: 'hello, world'
 }
 

@@ -30,8 +30,7 @@ root Formata: {
         return (reply: obj) => {
             // Get the tasks to execute (in order)
             let tasks = [];
-            for (field in self.fields()) {
-                let value = field[1];
+            for (value in self.values()) {
                 if ((typeof value) == 'obj' && value.instanceOf('Task')) {
                     tasks.push(value);
                 }
@@ -87,10 +86,9 @@ root Formata: {
      * Formata Task (also a schema).
      * This is the base type for tasks in Formata.
      */
-    type Task extends Schema {
+    type Task {
         /// Ordering for this task.
         /// Setting this will order tasks declared within the same object.
-        #[ignore] // for when this task is used as a Schema too
         order: int = 0;
 
         /**
@@ -109,11 +107,9 @@ root Formata: {
      */
     type Schemafy extends Task {
         /// Schema to use (default is this Task as the Schema).
-        #[ignore]
         schema: Formata.Schema = null;
 
         /// Object to apply the schema to.
-        #[ignore]
         target: obj = null;
 
         /// Getter for the target to apply the schema to.
