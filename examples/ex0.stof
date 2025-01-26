@@ -14,7 +14,9 @@
 // limitations under the License.
 //
 
-import github:formata 'mod';
+import 'task';
+import 'schema';
+import 'http';
 
 
 // Schemafy is a Task that applies a Schema to a 'reply' object in the 'run' function.
@@ -30,50 +32,60 @@ Schemafy main: {
     // After executing all tasks, this Schemafy task will use this object as the schema
     // for the 'reply' object passed to this tasks 'run' function.
     Schema schema: {
-        #[ignore]
+        // Apply the country schema to every object in this array
+        #[schema([(countries: Box<vec>): bool => {
+            let valid = true;
+            let schema = self.country;
+            for (country in countries) {
+                if (!schema.apply(country)) {
+                    valid = false;
+                    break;
+                }
+            }
+            return valid;
+        }])]
+        field: []
+
         Schema country: {
             // Keep alternate spellings that are greater than 2 letters only
-            #[expand]
-            #[exclude((val: str): bool => val.len() > 2)]
+            #[schema([(spellings: Box<vec>): bool => {
+                // filter out values that are less than 2 letters
+                spellings.retain((entry: str): bool => entry.len() > 2);
+                return true;
+            }])]
             altSpellings: []
 
-            // Area of the country must be positive
-            #[validate((area: float): bool => area >= 0)]
+            #[schema([
+                Schema.default,       // use 0 if no area provided
+                Schema.Type.number,   // make sure it's a number if provided
+                (number: unknown): bool => number >= 0, // make sure the number is positive
+            ])]
             area: 0
 
-            // Exclude the nativeName portion of the name object, keeping everything else
-            Schema name: {
-                #[exclude] nativeName: {}
-            }
-
-            // Exclude all of these fields
-            #[exclude] cca2: ''
-            #[exclude] cca3: ''
-            #[exclude] ccn3: ''
-            #[exclude] cioc: ''
-            #[exclude] flag: ''
-            #[exclude] subregion: ''
-            #[exclude] status: ''
-            #[exclude] startOfWeek: ''
-            #[exclude] region: ''
-            #[exclude] landlocked: false
-            #[exclude] timezones: []
-            #[exclude] tld: []
-            #[exclude] unMember: true
-            #[exclude] coatOfArms: {}
-            #[exclude] demonyms: {}
-            #[exclude] car: {}
-            #[exclude] currencies: {}
-            #[exclude] flags: {}
-            #[exclude] gini: {}
-            #[exclude] idd: {}
-            #[exclude] postalCode: {}
-            #[exclude] translations: {}
+            // Delete all of these fields
+            #[schema(Schema.delete)] cca2: ''
+            #[schema(Schema.delete)] cca3: ''
+            #[schema(Schema.delete)] ccn3: ''
+            #[schema(Schema.delete)] cioc: ''
+            #[schema(Schema.delete)] flag: ''
+            #[schema(Schema.delete)] subregion: ''
+            #[schema(Schema.delete)] status: ''
+            #[schema(Schema.delete)] startOfWeek: ''
+            #[schema(Schema.delete)] region: ''
+            #[schema(Schema.delete)] landlocked: false
+            #[schema(Schema.delete)] timezones: []
+            #[schema(Schema.delete)] tld: []
+            #[schema(Schema.delete)] unMember: true
+            #[schema(Schema.delete)] coatOfArms: {}
+            #[schema(Schema.delete)] demonyms: {}
+            #[schema(Schema.delete)] car: {}
+            #[schema(Schema.delete)] currencies: {}
+            #[schema(Schema.delete)] flags: {}
+            #[schema(Schema.delete)] gini: {}
+            #[schema(Schema.delete)] idd: {}
+            #[schema(Schema.delete)] postalCode: {}
+            #[schema(Schema.delete)] translations: {}
         }
-
-        // Apply the country schema to every object in this array
-        #[expand(self.country)]
-        field: [];
     }
 }
 
@@ -82,5 +94,6 @@ Schemafy main: {
 fn main() {
     let reply = new {};
     self.main.run(reply);
+    pln(self.main.valid);
     pln(stringify(reply, 'toml'));
 }

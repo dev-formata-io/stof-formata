@@ -55,6 +55,59 @@ root Formata: {
                 case 'null': {
                     return true; // empty schema accepts all
                 }
+                case 'obj': {
+                    try {
+                        return schema_value.apply_field(target, field);
+                    } catch {
+                        return false;
+                    }
+                }
+                case 'fn': {
+                    let value = box(target.at(field));
+                    let params = schema_value.parameters();
+                    let plen = params.len();
+                    let rtype = schema_value.returnType();
+                    let res = null;
+                    if (rtype == 'bool') {
+                        if (plen == 4) {
+                            // (target: obj, schema: obj, field: str, value: Box<unknown>): bool
+                            res = schema_value.call(target, self, field, value);
+                        } else if (plen == 3) {
+                            // (target: obj, field: str, value: Box<unknown>): bool
+                            res = schema_value.call(target, field, value);
+                        } else if (plen == 2) {
+                            // (target: obj, value: Box<unknown>): bool
+                            res = schema_value.call(target, value);
+                        } else if (plen == 1) {
+                            // (value: Box<unknown>): bool
+                            res = schema_value.call(value);
+                        } else {
+                            // (): bool
+                            res = schema_value.call();
+                        }
+                        if (!res) return false;
+                    } else if (rtype != 'void') {
+                        if (plen == 4) {
+                            // (target: obj, schema: obj, field: str, value: Box<unknown>): unknown
+                            res = schema_value.call(target, self, field, value);
+                        } else if (plen == 3) {
+                            // (target: obj, field: str, value: Box<unknown>): unknown
+                            res = schema_value.call(target, field, value);
+                        } else if (plen == 2) {
+                            // (target: obj, value: Box<unknown>): unknown
+                            res = schema_value.call(target, value);
+                        } else if (plen == 1) {
+                            // (value: Box<unknown>): unknown
+                            res = schema_value.call(value);
+                        } else {
+                            // (): unknown
+                            res = schema_value.call();
+                        }
+                        if (res != null) value = res;
+                    }
+                    if (value != null) target.set(field, value);
+                    return true;
+                }
                 case 'vec': {
                     let value = box(target.at(field));
                     for (entry in schema_value) {
