@@ -17,547 +17,370 @@
 
 root Formata: {
     /**
-     * Schema field operation type.
-     * Each operation will be applied in an order of the user's choosing to a field.
-     */
-    type SchemaOp {
-        /// Attribute value from creating this operation.
-        value: unknown = null;
-
-        /// Perform this operation on the field, returning true if the field is still valid
-        /// and should be kept. Returning false will result in the field being removed and the schema invalid.
-        fn operate(target: obj, field_name: str): bool {
-            return true;
-        }
-        
-        /// Destroy this operation and all of it's data!
-        fn destroy() {
-            drop self;
-        }
-    }
-
-    /**
-     * Formata Schema Type.
-     * Schemas outline the fields that should exist on an object, once applied.
+     * Schema objects can "apply" themselves onto target objects.
+     * Fields on this schema object with the "schema" attribute will be applied.
+     *      - takes a vector/array of functions and additional schemas to apply to that field on the target object (in order).
+     * If applying the field determins that the field is invalid, the field will be removed from the target object.
+     * Otherwise, if the field is valid, the potentially modified field will be set on the target after all manipulation.
+     *
+     * To use:
+     *  1. Create a Schema by applying #[schema([..])] attributes to the fields you care about.
+     *  2. Make sure the schema object has this Schema type (cast using "as" or declare it as such).
+     *  3. Call "apply" on the schema object, giving a target object to be modified/validated.
+     *  4. The target object is now either valid (apply returns true) or invalid and missing failed/invalid fields.
+     *
+     * N.B: Because the schema will remove invalid fields, "bad" data will never be the result of applying this schema to a target.
      */
     type Schema {
-        /**
-         * Apply this Schema to an object.
-         * By default, this schema applies to itself...
-         */
+        // Apply this schema to a target object.
+        // Returns true if the target adheres to all #[schema([..])] field validations.
+        // If invalid, fields that did not validate will be removed from target.
         fn apply(target: obj = self): bool {
             let valid = true;
             for (field in self.keys()) {
-                if (!self.apply_field(target, field)) valid = false;
+                if (!self.apply_field(target, field)) {
+                    valid = false;
+                    target.removeField(field, true);
+                }
             }
             return valid;
         }
 
-        // Apply this schema to an individual field.
-        fn apply_field(target: obj, field: str, operations: Box<vec> = null): bool {
-            let valid = true;
-            try {
-                let created = false;
-                if (operations == null) {
-                    created = true;
-                    operations = Formata.Schema.createFieldOperations(target, self, field);
+        // Apply this schema field onto the target's field.
+        // Gets the #[schema([..])] attribute from this schema's field, applying those validations on the corresponding target field.
+        fn apply_field(target: obj, field: str): bool {
+            let schema_field_attributes = self.attributes(field).or(map());
+            let schema_value = schema_field_attributes.get('schema');
+            switch (typeof schema_value) {
+                case 'null': {
+                    return true; // empty schema accepts all
                 }
-                for (op in operations) {
-                    if (!op.operate(target, field)) {
-                        valid = false;
-                        break;
+                case 'vec': {
+                    let value = box(target.at(field));
+                    for (entry in schema_value) {
+                        switch (typeof entry) {
+                            case 'fn': {
+                                let params = entry.parameters();
+                                let plen = params.len();
+                                let rtype = entry.returnType();
+                                let res = null;
+                                if (rtype == 'bool') {
+                                    if (plen == 4) {
+                                        // (target: obj, schema: obj, field: str, value: Box<unknown>): bool
+                                        res = entry.call(target, self, field, value);
+                                    } else if (plen == 3) {
+                                        // (target: obj, field: str, value: Box<unknown>): bool
+                                        res = entry.call(target, field, value);
+                                    } else if (plen == 2) {
+                                        // (target: obj, value: Box<unknown>): bool
+                                        res = entry.call(target, value);
+                                    } else if (plen == 1) {
+                                        // (value: Box<unknown>): bool
+                                        res = entry.call(value);
+                                    } else {
+                                        // (): bool
+                                        res = entry.call();
+                                    }
+                                    if (!res) return false;
+                                } else if (rtype != 'void') {
+                                    if (plen == 4) {
+                                        // (target: obj, schema: obj, field: str, value: Box<unknown>): unknown
+                                        res = entry.call(target, self, field, value);
+                                    } else if (plen == 3) {
+                                        // (target: obj, field: str, value: Box<unknown>): unknown
+                                        res = entry.call(target, field, value);
+                                    } else if (plen == 2) {
+                                        // (target: obj, value: Box<unknown>): unknown
+                                        res = entry.call(target, value);
+                                    } else if (plen == 1) {
+                                        // (value: Box<unknown>): unknown
+                                        res = entry.call(value);
+                                    } else {
+                                        // (): unknown
+                                        res = entry.call();
+                                    }
+                                    if (res != null) value = res;
+                                }
+                            }
+                            case 'obj': {
+                                try {
+                                    let res = entry.apply_field(target, field);
+                                    if (res) {
+                                        value = target.at(field);
+                                    } else {
+                                        return false;
+                                    }
+                                } catch {
+                                    return false;
+                                }
+                            }
+                        }
                     }
-                    if (created) op.destroy();
+                    if (value != null) target.set(field, value);
+                    return true;
                 }
-            } catch {
-                valid = false;
+                default: {
+                    return false;
+                }
             }
-            if (!valid) {
-                target.removeField(field, true);
-            } else {
-                let value = target.at(field);
-
-                // If this value is a sub-schema, apply it also
-                let type_name = typeof value;
-                if (type_name == 'obj' || type_name == 'Box<obj>') {
-                    let self_value = self.at(field);
-                    type_name = typeof self_value;
-                    if (self_value != null && (type_name == 'obj' || type_name == 'Box<obj>') && self_value.instanceOf('Schema')) {
-                        valid = self_value.apply(value);
-                    }
-                    if (!valid) { // sub-schema was invalid, so remove this object!
-                        target.removeField(field, true);
-                    }
-                }
-            }
-            return valid;
         }
     }
 
+
     /**
-     * Schema Scope, used for helper functions, op types, etc..
+     * Helper functions for validating fields.
+     * Functions found in these interfaces are meant to be used with the #[schema([..])] attribute, creating schemas that can
+     * be applied to target objects, controlling their fields in every way possible.
      */
     Schema: {
-        // Allow access for a field in the schema?
-        // Uses a 'self.value' for the attribute value.
-        // Signatures:
-        // - #[access(true | false)]
-        // - #[access((target: obj): bool => true)]
-        type Access extends SchemaOp {
-            /// Perform this operation on the field, returning true if the field is still valid
-            /// and should be kept. Returning false will result in the field being removed and the schema invalid.
-            fn operate(target: obj, field: str): bool {
-                let attr = self.value;
-                switch (typeof attr) {
-                    case 'fn': {
-                        try {
-                            if (!attr.call(target)) return false;
-                        } catch {
-                            return false;
-                        }
-                    }
-                    default: {
-                        if (!attr) return false;
-                    }
+        Type: {
+            // Null type validation function.
+            // This ensures the value didn't exist in the target.
+            fn null(value: unknown): bool {
+                return value == null;
+            }
+
+            // String type validation functions.
+            // False if this value is not a string.
+            // Can also act as a 'required' check.
+            fn str(value: unknown): bool {
+                return isString(value);
+            }
+            fn optStr(value: unknown): bool {
+                return value == null || isString(value);
+            }
+
+            // Number type validation functions.
+            // False if this value is not a number (float, int, units).
+            // Can also act as a 'required' check.
+            fn number(value: unknown): bool {
+                return isNumber(value);
+            }
+            fn optNumber(value: unknown): bool {
+                return value == null || isNumber(value);
+            }
+
+            // Integer type validation functions.
+            // False if this value is not an int.
+            // Can also act as a 'required' check.
+            fn int(value: unknown): bool {
+                return (typename value) == "int";
+            }
+            fn optInt(value: unknown): bool {
+                return value == null || (typename value) == "int";
+            }
+
+            // Float type validation functions.
+            // False if this value is not a float (or units).
+            // Can also act as a 'required' check.
+            fn float(value: unknown): bool {
+                if (isNumber(value)) {
+                    return Number.hasUnits(value) || (typename value) == "float";
                 }
-                return true;
-            }
-        }
-
-        // Validate this field's value.
-        // Uses a 'self.value' for the attribute value in which to validate with.
-        // Signatures:
-        // - #[validate(value: unknown)]                      // valid if field value is equal to value
-        // - #[validate((value: unknown): unknown => value)]  // sets a validated value
-        // - #[validate((value: unknown): bool => true)]      // keeps or removes the value (return true if valid)
-        // - #[validate([...])]                               // valid if array contains the value
-        // - #[validate(set(...))]                            // valid if set contains the value
-        // - #[validate(map([(unknown, (): bool => true)]))]  // map a value to a valid function
-        // - #[validate(map([(unknown, (): unknown => '')]))] // map a value to a different value
-        type Validate extends SchemaOp {
-            /// Perform this operation on the field, returning true if the field is still valid
-            /// and should be kept. Returning false will result in the field being removed and the schema invalid.
-            fn operate(target: obj, field: str): bool {
-                let attr = self.value;
-                let field_value = target.at(field);
-                if (field_value == null) return true; // this op only validates, not excludes
-
-                switch (typeof attr) {
-                    case 'fn': {
-                        // validating this value with a function
-                        // (value: unknown): unknown => value // sets the value
-                        // (value: unknown): bool => true     // keeps or removes the value
-                        if (attr.returnType() == 'bool') {
-                            if (!attr.call(field_value)) return false;
-                        } else {
-                            target.set(field, attr.call(field_value));
-                        }
-                    }
-                    case 'vec': {
-                        let items = set(attr);
-                        if (!items.contains(field_value)) return false;
-                    }
-                    case 'set': {
-                        if (!attr.contains(field_value)) return false;
-                    }
-                    case 'map': {
-                        // validating this value with a map
-                        let map_val = attr.get(field_value);
-                        switch (typeof map_val) {
-                            case 'fn': {
-                                if (map_val.returnType() == 'bool') {
-                                    if (!map_val.call()) return false;
-                                } else {
-                                    target.set(field, map_val.call());
-                                }
-                            }
-                            default: {
-                                return false;
-                            }
-                        }
-                    }
-                    default: {
-                        if (attr != field_value) return false;
-                    }
-                }
-                return true;
-            }
-        }
-
-        // Search for this value on the target if the value doesn't already exist.
-        // Uses a 'self.value' for the attribute value and a 'self.optional' for validity if not found.
-        // Signatures:
-        // - #[search]           // look for the closest field with this name on the target (or key 'all')
-        // - #[search('up')]     // look for the closest field on a parent (or parents children) with this name
-        // - #[search('uponly')] // look for the closest field on a parent (no parent children) with this name
-        // - #[search('down')]   // look for the closest field on a child with this name (first one seen)
-        // - #[search(vec())]    // try searching for these field names, in-order, anywhere in the target
-        // - #[search(map())]    // try searching for these field names, (alphabetical order), with a strategy: {'all', 'up', 'uponly', 'down'}
-        type Search extends SchemaOp {
-            /// Perform this operation on the field, returning true if the field is still valid
-            /// and should be kept. Returning false will result in the field being removed and the schema invalid.
-            fn operate(target: obj, field: str): bool {
-                let field_value = target.at(field);
-                if (field_value != null) return true; // value already exists
-                let attr = self.value;
-                switch (typeof attr) {
-                    case 'null' |
-                    case 'str': {
-                        let res = null;
-                        if (attr == 'up') res = target.searchUp(field, true, [self]);
-                        else if (attr == 'uponly') res = target.searchUp(field, false, [self]);
-                        else if (attr == 'down') res = target.searchDown(field, 0, [self]);
-                        else res = target.search(field, true, [self]);
-
-                        if (res != null) {
-                            target.set(field, res[0]);
-                        } else if (self.optional) {
-                            return true; // didn't find a value, but that's okay, it is not required...
-                        } else {
-                            return false; // didn't find a value, and that's a problem!
-                        }
-                        return true;
-                    }
-                    case 'vec': {
-                        let res = null;
-                        for (other_name in attr) {
-                            res = target.search(other_name, true, [self]);
-                            if (res != null) break;
-                        }
-                        if (res != null) {
-                            target.set(field, res[0]);
-                        } else if (self.optional) {
-                            return true; // didn't find a value, but that's okay, it is not required...
-                        } else {
-                            return false; // didn't find a value, and that's an issue
-                        }
-                        return true;
-                    }
-                    case 'map': {
-                        let other_name = null;
-                        let strategy = null;
-                        let res = null;
-                        for (item in attr) {
-                            other_name = item[0];
-                            strategy = item[1];
-                            
-                            if (strategy == 'up') res = target.searchUp(other_name, true, [self]);
-                            else if (strategy == 'uponly') res = target.searchUp(other_name, false, [self]);
-                            else if (strategy == 'down') res = target.searchDown(other_name, 0, [self]);
-                            else res = target.search(other_name, true, [self]);
-
-                            if (res != null) break;
-                        }
-                        if (res != null) {
-                            target.set(field, res[0]);
-                        } else if (self.optional) {
-                            return true; // didn't find a value, but that's okay, it is not required...
-                        } else {
-                            return false; // didn't find a value, and that's an issue
-                        }
-                        return true;
-                    }
-                    default: {
-                        return false; // not valid
-                    }
-                }
-            }
-        }
-
-        // Exclude this field if found. Removes the field, but retains validity.
-        // Uses a 'self.value' for the attribute value to check for field exlusion.
-        // Signatures:
-        // - #[exclude]                                  // always exclude this field
-        // - #[exclude((value: unknown): bool => true)]  // return true if the field should be excluded
-        type Exclude extends SchemaOp {
-            /// Perform this operation on the field, returning true if the field is still valid
-            /// and should be kept. Returning false will result in the field being removed and the schema invalid.
-            fn operate(target: obj, field: str): bool {
-                let attr = self.value;
-                switch (typeof attr) {
-                    case 'fn': {
-                        try {
-                            if (attr.call(target.at(field))) target.removeField(field, true);
-                        } catch {
-                            target.removeField(field, true);
-                        }
-                    }
-                    default: target.removeField(field, true);
-                }
-                return true;
-            }
-        }
-
-        // Requires this field to be validated by additional schemas to be valid
-        // Uses a 'self.value' for the attribute value pointing to other schema(s) to use.
-        // Signatures:
-        // - #[schema(other: obj)]  // uses 'other' as an additional schema to validate this field with
-        // - #[schemas(vec())]      // uses each object in the vec as another schema - all must be valid
-        // - #[schemas(set())]      // uses each object in the set as another schema - one must be valid
-        type AdditionalSchema extends SchemaOp {
-            /// Perform this operation on the field, returning true if the field is still valid
-            /// and should be kept. Returning false will result in the field being removed and the schema invalid.
-            fn operate(target: obj, field: str): bool {
-                let attr = self.value;
-                try {
-                    switch (typeof attr) {
-                        case 'obj': {
-                            return attr.apply(target);
-                        }
-                        case 'vec': {
-                            // AND - all schemas in the vec must be valid
-                            for (schema in attr) {
-                                if (!schema.apply(target)) return false;
-                            }
-                        }
-                        case 'set': {
-                            // OR - just one schema must be valid
-                            for (schema in attr) {
-                                if (schema.apply(target)) return true;
-                            }
-                            return false;
-                        }
-                        default: return false;
-                    }
-                } catch {
-                    return false;
-                }
-                return true;
-            }
-        }
-
-        // Applies the schema value as a default value if the field doesn't exist.
-        // Uses 'self.default' as the default value to apply.
-        // Signature: #[default]
-        type Default extends SchemaOp {
-            /// Perform this operation on the field, returning true if the field is still valid
-            /// and should be kept. Returning false will result in the field being removed and the schema invalid.
-            fn operate(target: obj, field: str): bool {
-                let field_value = target.at(field);
-                if (field_value == null) {
-                    let default_value = self.default;
-                    if (default_value != null) {
-                        target.set(field, default_value);
-                        return true;
-                    }
-                    return false;
-                }
-                return true;
-            }
-        }
-
-        // Requires the target to have provided the value.
-        // Signature: #[required]
-        type Required extends SchemaOp {
-            /// Perform this operation on the field, returning true if the field is still valid
-            /// and should be kept. Returning false will result in the field being removed and the schema invalid.
-            fn operate(target: obj, field: str): bool {
-                return target.at(field) != null;
-            }
-        }
-
-        // Requires a field to be of a specific type.
-        // Uses 'self.value' as the attribute value for typeof check.
-        // Signature: #[typeof('str')]
-        type TypeOf extends SchemaOp {
-            /// Perform this operation on the field, returning true if the field is still valid
-            /// and should be kept. Returning false will result in the field being removed and the schema invalid.
-            fn operate(target: obj, field: str): bool {
-                let field_value = target.at(field);
-                if (field_value == null) return true; // only checks type, not existence
-                if ((typeof field_value) == self.value) return true;
                 return false;
             }
+            fn optFloat(value: unknown): bool {
+                if (value == null) return true;
+                if (isNumber(value)) {
+                    return Number.hasUnits(value) || (typename value) == "float";
+                }
+                return false;
+            }
+
+            // Units type validation functions.
+            // False if this value is not a number with units.
+            // Can also act as a 'required' check.
+            fn units(value: unknown): bool {
+                return isNumber(value) && Number.hasUnits(value);
+            }
+            fn optUnits(value: unknown): bool {
+                if (value == null) return value;
+                return isNumber(value) && Number.hasUnits(value);
+            }
+
+            // Angle units type validation functions.
+            // False if this value is not a number with Angle units.
+            // Can also act as a 'required' check.
+            fn angle(value: unknown): bool {
+                return isNumber(value) && Number.isAngle(value);
+            }
+            fn optAngle(value: unknown): bool {
+                if (value == null) return value;
+                return isNumber(value) && Number.isAngle(value);
+            }
+
+            // Temperature units type validation functions.
+            // False if this value is not a number with Temperature units.
+            // Can also act as a 'required' check.
+            fn temp(value: unknown): bool {
+                return isNumber(value) && Number.isTemperature(value);
+            }
+            fn optTemp(value: unknown): bool {
+                if (value == null) return value;
+                return isNumber(value) && Number.isTemperature(value);
+            }
+
+            // Length units type validation functions.
+            // False if this value is not a number with Length units.
+            // Can also act as a 'required' check.
+            fn length(value: unknown): bool {
+                return isNumber(value) && Number.isLength(value);
+            }
+            fn optLength(value: unknown): bool {
+                if (value == null) return value;
+                return isNumber(value) && Number.isLength(value);
+            }
+
+            // Time units type validation functions.
+            // False if this value is not a number with Time units.
+            // Can also act as a 'required' check.
+            fn time(value: unknown): bool {
+                return isNumber(value) && Number.isTime(value);
+            }
+            fn optTime(value: unknown): bool {
+                if (value == null) return value;
+                return isNumber(value) && Number.isTime(value);
+            }
+
+            // Mass units type validation functions.
+            // False if this value is not a number with Mass units.
+            // Can also act as a 'required' check.
+            fn mass(value: unknown): bool {
+                return isNumber(value) && Number.isMass(value);
+            }
+            fn optMass(value: unknown): bool {
+                if (value == null) return value;
+                return isNumber(value) && Number.isMass(value);
+            }
+
+            // Object type validation functions.
+            // False if this value is not an object.
+            // Can also act as a 'required' check.
+            fn obj(value: unknown): bool {
+                return isObject(value);
+            }
+            fn optObj(value: unknown): bool {
+                return value == null || isObject(value);
+            }
+
+            // Boolean type validation functions.
+            // False if this value is not a bool.
+            // Can also act as a 'required' check.
+            fn bool(value: unknown): bool {
+                return isBool(value);
+            }
+            fn optBool(value: unknown): bool {
+                return value == null || isBool(value);
+            }
+
+            // Map type validation functions.
+            // False if this value is not a map.
+            // Can also act as a 'required' check.
+            fn map(value: unknown): bool {
+                return isMap(value);
+            }
+            fn optMap(value: unknown): bool {
+                return value == null || isMap(value);
+            }
+
+            // Set type validation functions.
+            // False if this value is not a set.
+            // Can also act as a 'required' check.
+            fn set(value: unknown): bool {
+                return isSet(value);
+            }
+            fn optSet(value: unknown): bool {
+                return value == null || isSet(value);
+            }
+
+            // Blob type validation functions.
+            // False if this value is not a blob.
+            // Can also act as a 'required' check.
+            fn blob(value: unknown): bool {
+                return isBlob(value);
+            }
+            fn optBlob(value: unknown): bool {
+                return value == null || isBlob(value);
+            }
+
+            // Array/Vec type validation functions.
+            // False if this value is not an array.
+            // Can also act as a 'required' check.
+            fn array(value: unknown): bool {
+                return isArray(value);
+            }
+            fn optArray(value: unknown): bool {
+                return value == null || isArray(value);
+            }
+
+            // Function type validation functions.
+            // False if this value is not a function.
+            // Can also act as a 'required' check.
+            fn func(value: unknown): bool {
+                return isFunc(value);
+            }
+            fn optFunc(value: unknown): bool {
+                return value == null || isFunc(value);
+            }
         }
 
-        // Expand a collection, applying operations to each value.
-        // Uses 'self.operations' as the vector of operations to perform per value in the collection.
-        // Signature: #[expand]
-        type Expand extends SchemaOp {
-            /// Perform this operation on the field, returning true if the field is still valid
-            /// and should be kept. Returning false will result in the field being removed and the schema invalid.
-            fn operate(target: obj, field: str): bool {
-                let collection = target.at(field);
-                let operations = box(self.operations);
-                if ((typename operations) != "vec" || operations.empty()) return true;
-
-                let valid = true;
-                let tmp = new {}; // temp target object for each value
-                let sc = new Schema {}; // temp schema for each value
-                try {
-                    switch (typeof collection) {
-                        case 'vec': {
-                            let to_remove = [];
-                            let tgt = null;
-                            let objval = false;
-                            for (val in collection) {
-                                if ((typeof val) == "obj" || (typeof val) == "Box<obj>") {
-                                    tgt = val;
-                                    objval = true;
-                                } else {
-                                    tmp.set(field, val);
-                                    tgt = tmp;
-                                }
-                                
-                                sc.set(field, val);
-                                if (!sc.apply_field(tgt, field, operations)) {
-                                    valid = false;
-                                    to_remove.push(index);
-                                } else if (!objval) {
-                                    collection.set(index, tgt.at(field));
-                                }
-                            }
-                            to_remove.reverse();
-                            for (i in to_remove) {
-                                collection.pop(i);
-                            }
-                            target.set(field, collection);
-                        }
-                        case 'set': {
-                            let to_remove = [];
-                            let to_insert = [];
-                            let tgt = null;
-                            let objval = false;
-                            for (val in collection) {
-                                if ((typeof val) == "obj" || (typeof val) == "Box<obj>") {
-                                    tgt = val;
-                                    objval = true;
-                                } else {
-                                    tmp.set(field, val);
-                                    tgt = tmp;
-                                }
-                                
-                                if (!sc.apply_field(tgt, field, operations)) {
-                                    valid = false;
-                                    to_remove.push(val);
-                                } else if (!objval) {
-                                    to_insert.push(tgt.at(field));
-                                }
-                            }
-                            for (val in to_remove) collection.remove(val);
-                            for (val in to_insert) collection.insert(val);
-                            target.set(field, collection);
-                        }
-                        default: {
-                            throw('collection not supported for #[expand] operation');
-                        }
-                    }
-                } catch {
-                    valid = false;
-                }
-                drop tmp;
-                drop sc;
-                return valid;
-            }
-
-            fn destroy() {
-                try {
-                    for (SchemaOp op in self.operations) {
-                        op.destroy();
-                    }
-                } catch {
-                    // nada..
-                }
-                self.SchemaOp::destroy();
-            }
+        // Required value Schema helper function.
+        // Can be used directly to require the value to be non-null.
+        fn required(value: Box<unknown>): bool {
+            return value != null;
         }
 
-        // Create operations for a field from it's attributes.
-        fn createFieldOperations(target: obj, schema: obj, field: str): Box<vec> {
-            let operations = box(vec());
-            let attributes = schema.attributes(field).or(map());
-            let order = attributes.keys();
+        // Use the schema's value as the default value if one isn't provided by the target.
+        fn default(target: obj, schema: obj, field: str, value: Box<unknown>): unknown {
+            if (value == null) return schema.at(field);
+            return value;
+        }
 
-            let custom_order = attributes.remove("order");
-            if (custom_order != null) {
-                if ((typename custom_order) == "vec") {
-                    custom_order.retain((val: unknown): bool => attributes.contains(val));
-                    if (custom_order.len() != order.len()) {
-                        for (key in custom_order) order.removeAll(key);
-                        custom_order.append(order);
-                    }
-                    order = custom_order;
-                }
+        // Delete the value if present.
+        fn delete(target: obj, field: str, value: Box<unknown>): unknown {
+            if (value != null) {
+                target.removeField(field, true);
+                value = null; // need this as the value won't be set otherwise
             }
+            return null;
+        }
 
-            let optional_search = false;
-            let expand_operations = false;
-            for (key in order) {
-                switch (key) {
-                    // #[ignore] ignores this field in the schema by returning valid always.
-                    case 'ignore': {
-                        return operations; // just return valid (or current ops)
-                    }
-                    // #[optional] ignores this field in the schema if a value doesn't exist for it on the target object.
-                    case 'optional': {
-                        if (target.at(field) == null) {
-                            return operations; // if no field value, then just return valid (or current ops)
+        // Search for alternative field(s) on the target if the value doesn't exist.
+        // Doesn't do anything if existing value exists!
+        // Does not render the schema invalid if nothing is found! (use the 'required' function after search if desired).
+        // Cannot be used directly, must be wrapped in another function.
+        // Ex. (target: obj, value: unknown): unknown => Formata.Schema.search(target, self, 'other', value)
+        fn search(target: obj, schema: obj, others: unknown, existing: unknown, up: bool = true, parent_down: bool = true): unknown {
+            if (existing == null) {
+                switch (typeof others) {
+                    case 'str': {
+                        try {
+                            let search = null;
+                            if (up && down) search = target.search(others, parent_down, [schema]);
+                            else if (up) search = target.searchUp(others, parent_down, [schema]);
+                            else search = target.searchDown(others, 0, [schema]);
+                            if (search) return search.at(0);
+                        } catch {
+                            // nada...
                         }
                     }
-                    // Determins whether the target should have access to this field.
-                    case 'access': {
-                        operations.push(new Access {
-                            value: attributes.get(key);
-                        });
-                    }
-                    // Sets the search to optional, meaning if the search doesn't find anything, the field will still be valid.
-                    case 'optionalSearch': {
-                        optional_search = true;
-                    }
-                    // Search for a value on the target if one doesn't already exist.
-                    case 'search': {
-                        operations.push(new Search {
-                            value: attributes.get(key);
-                            optional: optional_search;
-                        });
-                    }
-                    // Validate this field's value.
-                    case 'validate': {
-                        operations.push(new Validate {
-                            value: attributes.get(key);
-                        });
-                    }
-                    // Additional schema(s) to use for this field.
-                    case 'schemas' |
-                    case 'schema': {
-                        operations.push(new AdditionalSchema {
-                            value: attributes.get(key);
-                        });
-                    }
-                    // Exclude this field when seen.
-                    case 'exclude': {
-                        operations.push(new Exclude {
-                            value: attributes.get(key);
-                        });
-                    }
-                    // Expand these operations over a collection.
-                    case 'expand': {
-                        expand_operations = true;
-                    }
-                    // Apply the schema value as a default value if doesn't exist.
-                    case 'default': {
-                        operations.push(new Default {
-                            default: schema.at(field);
-                        });
-                    }
-                    // Mark this field as required to be provided by the target.
-                    case 'required': {
-                        operations.push(new Required {});
-                    }
-                    // Require the field type to be a specific typeof value.
-                    case 'typeof': {
-                        operations.push(new TypeOf {
-                            value: attributes.get(key);
-                        });
+                    case 'set' |
+                    case 'vec': {
+                        try {
+                            let search = null;
+                            for (other in others) {
+                                if (up && down) search = target.search(other, parent_down, [schema]);
+                                else if (up) search = target.searchUp(other, parent_down, [schema]);
+                                else search = target.searchDown(other, 0, [schema]);
+                                if (search) return search.at(0);
+                            }
+                        } catch {
+                            // nada...
+                        }
                     }
                 }
             }
-            if (expand_operations) {
-                return box(vec(new Expand {
-                    operations: operations;
-                }));
-            }
-            return operations;
+            return existing;
         }
     }
 }

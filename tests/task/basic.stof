@@ -14,20 +14,20 @@
 // limitations under the License.
 //
 
-
 import './task';
 
 
 TestTask main: {
+    #[order(0)]
     TestTask first: {
-        order: 0
-
         TestTask sub-first: {
+            #[order(1)]
             TestTask sub-sub-a: {
-                order: 1
+                
             }
+            #[order(0)]
             TestTask sub-sub-b: {
-                order: 0
+                
             }
 
             fn run(reply: obj) {
@@ -40,8 +40,9 @@ TestTask main: {
             }
         }
     }
+    #[order(1)]
     TestTask second: {
-        order: 1
+        
     }
 }
 

@@ -14,53 +14,61 @@
 // limitations under the License.
 //
 
+import 'schema';
+
+
 Schema resource: {
-    #[required]
-    #[typeof('str')]
-    #[search(vec('resourceType'))]
-    #[order(vec('search', 'required', 'typeof'))] // search first
+    #[schema([
+        (target: obj, value: unknown): unknown =>
+            Formata.Schema.search(target, self, 'resourceType', value),
+        Formata.Schema.required,
+    ])]
     type: ''
 
-    #[required]
-    #[typeof('str')]
-    id: ''
+    #[schema([Formata.Schema.delete])]
+    undesired: ''
 
-    #[required]
+    #[schema([
+        Formata.Schema.default,
+        Formata.Schema.Type.str,
+    ])] // required & string type
+    id: 'unknown'
+
+    #[schema([(active: bool): bool => active != null])]
     active: true
 
-    #[ignore]
     Schema name_schema: {
-        #[required]
-        #[validate(set('official', 'usual', 'maiden'))]
+        #[schema([
+            (use: str): bool => use != null && set('official', 'usual', 'maiden').contains(use),
+        ])]
         use: 'usual'
 
-        #[optional]
+        
         family: ''
 
-        #[expand]
-        #[validate((name: unknown): bool => (typename name) == 'str')]
+        #[schema([(given_names: vec): bool => {
+            for (name in given_names) if ((typename name) != 'str') return false;
+            return true;
+        }])]
         given: []
     }
 
-    //#[schema(self.name_schema)]
-    #[validate((value: vec): bool => {
+    #[schema([(names: vec): bool => {
         let valid = true;
         let schema = self.name_schema;
-        for (name in value) {
-            if (!schema.apply(name)) {
-                valid = false;
-                break;
-            }
+        for (name in names) if (!schema.apply(name)) {
+            valid = false;
+            break;
         }
         return valid;
-    })]
-    //#[expand]
+    }])]
     name: []
 }
 
 record: {
     resourceType : "Patient",
-    id : "example",
+    //id : "example",
+    undesired: 'WOHOOO'
     active : true,
     name : [
         {
@@ -86,6 +94,6 @@ record: {
 #[test]
 fn test() {
     let valid = self.resource.apply(self.record);
-    //pln(self.record);
+    pln(stringify(self.record, 'toml'));
     assert(valid);
 }

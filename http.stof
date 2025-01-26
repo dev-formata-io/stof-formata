@@ -24,15 +24,15 @@ root Formata: {
         /**
          * Formata's HTTP Request type.
          */
-        type Request extends Schema {
+        type Request {
             /// Request URL.
             url: str;
 
             /// Request method (not case-sensitive): one of {'get', 'put', 'delete', 'patch', 'post', 'head'}
             method: str = 'get';
 
-            /// Request headers in the form [(key: str, value: str), ...]
-            headers: vec = [];
+            /// Request headers map.
+            headers: map = map();
 
             /// Request timeout.
             timeout: float = 5s;
@@ -64,8 +64,7 @@ root Formata: {
             /// Add a header to this request.
             fn header(key: str, value: str) {
                 let headers = self.headers;
-                headers.retain((val: (str, str)): bool => val[0] != key);
-                headers.push((key, value));
+                headers.insert(key, value);
                 self.headers = headers;
             }
 
@@ -126,8 +125,8 @@ root Formata: {
             }
 
             /// Send this request.
-            /// Returns (response_content_type: str, response_headers: vec, response_body: blob)
-            fn send(): (str, vec, blob) {
+            /// Returns (response_content_type: str, response_headers: map, response_body: blob)
+            fn send(): (str, map, blob) {
                 switch (self.method.toLower()) {
                     case 'get': {
                         if (self.body && self.response) return HTTP.get(self.url, self.headers, self.body, self.timeout, self.response);
@@ -177,7 +176,6 @@ root Formata: {
          */
         type Call extends Task {
             request: Formata.Http.Request;
-            #[optional]
             raw_response: unknown = null;
 
             /// Runs all sub-tasks, then makes the HTTP request.

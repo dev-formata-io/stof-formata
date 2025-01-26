@@ -36,9 +36,18 @@ root Formata: {
                 }
             }
             tasks.sort((a: obj, b: obj): int => {
-                if (a.order == null || b.order == null) return 0;
-                if (a.order < b.order) return -1;
-                if (a.order > b.order) return 1;
+                let a_name = a.name();
+                let a_parent = a.parent();
+                let b_name = b.name();
+                let b_parent = b.parent();
+                if (a_parent && b_parent) {
+                    let a_attrs = a_parent.attributes(a_name);
+                    let b_attrs = b_parent.attributes(b_name);
+                    let a_order = a_attrs.get('order');
+                    let b_order = b_attrs.get('order');
+                    if (a_order < b_order) return -1;
+                    if (a_order > b_order) return 1;
+                }
                 return 0;
             });
 
@@ -83,14 +92,10 @@ root Formata: {
     }
 
     /**
-     * Formata Task (also a schema).
-     * This is the base type for tasks in Formata.
+     * Formata Task.
+     * To order tasks, supply an #[order(int)] attribute on the Task object.
      */
     type Task {
-        /// Ordering for this task.
-        /// Setting this will order tasks declared within the same object.
-        order: int = 0;
-
         /**
          * Run function.
          * Because this is decorated, calling this function will execute all 'Formata.Task' objects in this task object.
@@ -106,8 +111,8 @@ root Formata: {
      * Apply a schema in a task.
      */
     type Schemafy extends Task {
-        /// Schema to use (default is this Task as the Schema).
-        schema: Formata.Schema = null;
+        /// Schema to use.
+        schema: obj;
 
         /// Object to apply the schema to.
         target: obj = null;
@@ -120,20 +125,15 @@ root Formata: {
             return reply;
         }
 
-        /// Getter for the schema to use on the target.
-        /// Idea here is that a user can override the schema declaratively, or here functionally.
-        fn getSchema(): obj {
-            let defined_schema = self.schema;
-            if (defined_schema) return defined_schema;
-            return self;
-        }
-
         /// Run this task.
         fn run(reply: obj) {
             self.Task::run(reply);
-            let schema = self.getSchema();
-            let target = self.getTarget(reply);
-            self.valid = schema.apply(target);
+            try {
+                let target = self.getTarget(reply);
+                self.valid = self.schema.apply(target);
+            } catch {
+                self.valid = false;
+            }
         }
     }
 }
